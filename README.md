@@ -73,6 +73,17 @@ pip install -e ".[test]"
 pytest
 ```
 
+## Publishing
+
+This project is ready for PyPI packaging. Build locally with:
+
+```bash
+python -m pip install build
+python -m build
+```
+
+For GitHub Actions trusted publishing, configure a PyPI trusted publisher for `waeckerlinfederowicz66-sketch/langchain-flowspeech`, then add a publishing workflow with `id-token: write`.
+
 ## Safety
 
 This repository intentionally contains no secrets. Tests use mocked HTTP responses.
