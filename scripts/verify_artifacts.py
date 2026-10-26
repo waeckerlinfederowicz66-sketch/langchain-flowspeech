@@ -42,6 +42,7 @@ def inspect(path):
         assert not any(p.startswith(".env") for p in parts), name
         assert not name.endswith((".pyc", ".whl", ".difypkg", ".exe")), name
         assert not SECRET.search(content), "Potential secret in " + name
+        assert b"/Users/" not in content and b"/private/var/folders/" not in content, "Private local path in " + name
         if path.suffix in {".whl", ".difypkg"}:
             assert "tests" not in parts and "test-only" not in content.decode("utf-8", errors="ignore"), name
     assert sum(len(content) for _, content in entries) <= 100 * 1024 * 1024
@@ -50,6 +51,7 @@ def inspect(path):
         assert b"Version: 0.2.0\n" in metadata
         assert b"Requires-Dist: httpx" in metadata
     if path.suffix == ".difypkg":
+        assert {"main.py", "runtime_config.py", "flowspeech_v1.py"} <= set(dict(entries))
         manifest = dict(entries)["manifest.yaml"]
         assert manifest.startswith(b"version: 0.2.0")
     return {"file": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),

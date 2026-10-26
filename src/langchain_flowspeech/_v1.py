@@ -1,14 +1,13 @@
 """Internal public API v1 adapter. Keep vendored copies and contract tests in sync."""
 from __future__ import annotations
 
-import io
 import json
 import math
 import os
+import struct
 import threading
 import time
 import uuid
-import wave
 from email.utils import parsedate_to_datetime
 from urllib.parse import urljoin, urlsplit
 
@@ -110,6 +109,51 @@ def retry_after(value, wall_clock=time.time):
         except (TypeError, ValueError, OverflowError):
             return 0.0
     return max(0.0, seconds) if math.isfinite(seconds) else 0.0
+
+
+def validate_wav(content, *, result_url=None, check_deadline=None):
+    """Validate the complete RIFF container, not just frames understood by wave."""
+    try:
+        if not isinstance(content, bytes) or len(content) < 12:
+            raise ValueError("Truncated RIFF header")
+        if content[:4] != b"RIFF" or content[8:12] != b"WAVE":
+            raise ValueError("Not a RIFF/WAVE file")
+        end = struct.unpack_from("<I", content, 4)[0] + 8
+        if end != len(content):
+            raise ValueError("RIFF size does not match the downloaded bytes")
+        offset, have_format, have_data = 12, False, False
+        while offset < end:
+            if check_deadline is not None:
+                check_deadline()
+            if end - offset < 8:
+                raise ValueError("Truncated chunk header")
+            name = content[offset:offset + 4]
+            size = struct.unpack_from("<I", content, offset + 4)[0]
+            start = offset + 8
+            chunk_end = start + size
+            next_chunk = chunk_end + (size & 1)
+            if next_chunk > end:
+                raise ValueError("Chunk or alignment pad exceeds RIFF bounds")
+            if name == b"fmt ":
+                if have_format or have_data or size not in (16, 18):
+                    raise ValueError("Invalid or duplicate PCM format chunk")
+                if struct.unpack_from("<HHIIHH", content, start) != (1, 1, 24000, 48000, 2, 16):
+                    raise ValueError("Expected PCM 24000 Hz mono 16-bit audio")
+                if size == 18 and struct.unpack_from("<H", content, start + 16)[0] != 0:
+                    raise ValueError("Unexpected PCM format extension")
+                have_format = True
+            elif name == b"data":
+                if not have_format or have_data or not size or size % 2:
+                    raise ValueError("Invalid, empty or partial PCM data frames")
+                have_data = True
+            offset = next_chunk
+        if not have_format or not have_data:
+            raise ValueError("Missing format or data chunk")
+        if check_deadline is not None:
+            check_deadline()
+    except (TypeError, ValueError, struct.error, OverflowError):
+        raise ApiError("Invalid or truncated WAV audio", code="invalid_audio",
+                       result_url=result_url) from None
 
 
 class V1Client:
@@ -276,15 +320,15 @@ class V1Client:
     @staticmethod
     def _job(job, *, job_id=None, request_id=None):
         try:
-            identifier(job.get("id"))
-            if job_id is not None and job["id"] != job_id:
+            actual_job_id = identifier(job.get("id"))
+            actual_request_id = identifier(job.get("requestId"))
+            if job_id is not None and actual_job_id != identifier(job_id):
                 raise ValueError("Job ID mismatch")
-            if "requestId" in job:
-                identifier(job["requestId"])
-                if request_id is not None and job["requestId"] != request_id:
-                    raise ValueError("Request ID mismatch")
+            if request_id is not None and actual_request_id != identifier(request_id):
+                raise ValueError("Request ID mismatch")
         except (ValueError, AttributeError):
             raise ApiError("Malformed or mismatched job ID", code="invalid_response") from None
+        job["id"], job["requestId"] = actual_job_id, actual_request_id
         if not isinstance(job.get("status"), str) or job["status"] not in PENDING | TERMINAL:
             raise ApiError("Unknown job status", code="invalid_response", job_id=job["id"])
         return job
@@ -347,14 +391,8 @@ class V1Client:
                                      status_code=status, code="download_failed",
                                      retryable=status == 429 or status >= 500, result_url=url)
                 else:
-                    try:
-                        with wave.open(io.BytesIO(content), "rb") as audio:
-                            if (audio.getframerate(), audio.getnchannels(), audio.getsampwidth()) != (24000, 1, 2):
-                                raise ValueError("Invalid WAV format")
-                            if not audio.getnframes() or len(audio.readframes(audio.getnframes())) != audio.getnframes() * 2:
-                                raise ValueError("Truncated or empty WAV")
-                    except (wave.Error, EOFError, ValueError):
-                        raise ApiError("Invalid or truncated WAV audio", code="invalid_audio", result_url=url) from None
+                    validate_wav(content, result_url=url,
+                                 check_deadline=lambda: self._remaining(deadline))
                     return content
                 delay = max(self.poll_interval, retry_after(headers.get("Retry-After")))
             except httpx.TransportError:

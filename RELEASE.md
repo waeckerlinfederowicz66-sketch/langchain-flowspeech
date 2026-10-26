@@ -27,9 +27,8 @@ Preserve the existing 0.1.0 publication. Release 0.2.0 only after final coordina
 review of source, artifacts, registry availability and account authorization.
 The worker has not pushed commits, published packages or changed any upstream PR.
 
-The inspected server currently returns subscription where the migration contract
-names entitlement; the adapters preserve/accept both. Confirm current public docs
-and release notes with the coordinator. This does not affect generation.
+The verified server quota contract returns subscription and limits alongside
+quota. Preserve subscription; entitlement is only an optional compatibility alias.
 
 ## Reproducible tests
 
@@ -37,4 +36,21 @@ All network calls in the test suite are fake httpx transports. An autouse fixtur
 blocks socket connect/connect_ex, so a missing mock cannot consume credits.
 The adapter is vendored independently in these three integrations; any future
 contract fix must be applied to all copies and their matching contract tests.
+
+## Release-gate fixes
+
+The candidate was rebuilt after the independent WAV/timeout review. Do not upload
+an older 0.2.0 archive: compare the rebuilt checksums in VALIDATION.md. Run the
+complete tests against source and the actual installed/extracted artifact, including
+tests/test_wav_validation.py. RIFF bounds/chunks/padding, PCM 24000 Hz mono16,
+block alignment 2, byte rate 48000 and nonempty even data lengths are mandatory.
+Malformed audio must produce invalid_audio and preserve recovery identifiers.
+
+Every job must contain a valid requestId. Run tests/test_job_identifiers.py to
+verify missing/mismatched ID rejection and case-insensitive UUID matching.
+Returned job and request IDs are normalized to canonical lowercase UUIDs.
+
+The coordinator's existing commit 42bfcf0 and pushed codex/public-api-v1 branch
+must be preserved. These follow-up fixes are uncommitted; the coordinator must
+review and commit them before release CI. This worker did not commit or push.
 

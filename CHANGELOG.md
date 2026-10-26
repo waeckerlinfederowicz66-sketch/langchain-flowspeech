@@ -2,6 +2,10 @@
 
 ## 0.2.0 - 2026-10-26
 
+- Require requestId on every job response; normalize job/request UUIDs before comparison and return canonical lowercase IDs.
+
+- Release-gate fix: structurally validate RIFF/chunk bounds and exact PCM WAV fields; reject partial samples and preserve recovery IDs on all malformed-audio errors.
+
 - Migrate from legacy synchronous generation to public API v1 submit, poll and download.
 - Add stable UUID idempotency, bounded retries, Retry-After, total deadlines and recovery IDs.
 - Map single and explicit multi-speaker input; reject obsolete options and malformed responses.

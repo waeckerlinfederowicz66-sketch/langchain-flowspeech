@@ -82,13 +82,17 @@ result_url where available. Failed and cancelled jobs raise errors. Deleted
 success results are reported as result_deleted, not as empty audio.
 
 Audio is a separately downloaded, validated WAV (24000 Hz, mono, 16 bit).
+Validation checks the entire RIFF size, chunk bounds/padding, exactly one PCM
+format/data pair, byte rate 48000, block alignment 2 and nonempty complete samples.
+Malformed audio raises invalid_audio with request/job IDs and the existing result
+URL preserved; it does not trigger another recording.
 Downloads use HTTPS without API Authorization, cookies, or default client
 credentials, including across redirects. API redirects are rejected. Downloads
 are bounded to 64 MiB by default. A download retry never submits another recording.
 Anyone holding a result URL can access the recording; treat links as sensitive.
 
-GET /api/v1/quota returns quota.remaining/reserved/available plus entitlement
-(or subscription on the currently inspected server) and limits. GET /api/v1/voices
+GET /api/v1/quota returns quota.remaining/reserved/available plus subscription
+and limits. GET /api/v1/voices
 returns voices. Recovery uses GET /api/v1/tts/jobs?requestId=UUID; status and cancel
 use /api/v1/tts/jobs/{UUID} and /api/v1/tts/jobs/{UUID}/cancel.
 
