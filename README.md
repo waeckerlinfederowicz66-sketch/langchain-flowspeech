@@ -1,89 +1,104 @@
 # langchain-flowspeech
 
-`langchain-flowspeech` provides LangChain tools for generating text-to-speech audio with [FlowSpeech](https://flowspeech.io/).
-
-FlowSpeech is a context-aware text-to-speech service for human-like narration with emotion control, pause control, and multi-speaker voice configuration.
-
-## Installation
+LangChain tools for [FlowSpeech](https://flowspeech.io/) public API v1.
 
 ```bash
-pip install langchain-flowspeech
+pip install langchain-flowspeech==0.2.0
 ```
 
-## Authentication
-
-Create a FlowSpeech API key in your FlowSpeech account, then export it:
-
-```bash
-export FLOWSPEECH_API_KEY="..."
-```
-
-Do not commit API keys, cookies, session tokens, or provider credentials.
-
-## Usage
+Set FLOWSPEECH_API_KEY in your server environment, then:
 
 ```python
 from langchain_flowspeech import FlowSpeechTextToSpeechTool
 
-tool = FlowSpeechTextToSpeechTool()
-
-result = tool.invoke({
-    "text": "Welcome to FlowSpeech. This audio is generated from a LangChain tool.",
-    "voice_name": "Kore",
-    "output_path": "flowspeech-demo.wav",
-})
-
-print(result["output_path"])
-print(result["mime_type"])
-print(result["quota"])
+tool = FlowSpeechTextToSpeechTool(timeout=300)
+try:
+    result = tool.invoke({
+        "text": "Welcome.[pause:2s]Let's begin.",
+        "voice_name": "Kore",
+        "output_path": "speech.wav",
+    })
+    print(result["job_id"], result["request_id"], result["usage"])
+finally:
+    tool.close()
 ```
 
-## Multi-Speaker Speech
+Async callers can use await tool.ainvoke(...) with the same arguments and result.
+FlowSpeechClient also provides agenerate_speech, acheck_quota and alist_voices.
+These offload synchronous I/O to a worker thread; cancelling the await does not
+cancel the server job or immediately stop the worker. The configured deadline
+still bounds its work. Explicit cancel_job is available.
+
+## Multi-speaker input
 
 ```python
-from langchain_flowspeech import FlowSpeechSpeaker, FlowSpeechTextToSpeechTool
+from langchain_flowspeech import FlowSpeechClient
 
-tool = FlowSpeechTextToSpeechTool()
-
-result = tool.invoke({
-    "text": "Speaker A: We can make this sound natural.\nSpeaker B: Great, let's use different voices.",
-    "speakers": [
-        FlowSpeechSpeaker(speaker="Speaker A", voice_name="Kore"),
-        FlowSpeechSpeaker(speaker="Speaker B", voice_name="Puck"),
-    ],
-    "output_path": "conversation.wav",
-})
+with FlowSpeechClient() as client:
+    result = client.generate_speech(segments=[
+        {"speaker": "Alice", "text": "Welcome.", "voiceName": "Kore"},
+        {"speaker": "Bob", "text": "Thank you.", "voiceName": "Puck"},
+    ])
+    result.save("conversation.wav")
+    print(client.check_quota().available)
+    print(client.list_voices())
 ```
 
-## API Surface
+Legacy speakers assignments remain supported when every nonblank text line has
+the form Label: utterance. Unknown/duplicate labels or unlabelled lines are rejected;
+use segments for arbitrary multiline scripts. One unlabelled voice assignment maps
+to single mode. original_text is accepted only when identical to text.
 
-The package uses the public FlowSpeech API:
+FlowSpeechTtsResult.audio_base64 remains available for compatibility but is
+encoded locally from downloaded WAV bytes. The API itself does not return base64.
+The legacy result quota field is None; use usage for this job or check_quota()
+for a current account balance. Legacy limit/used/reset_at/is_guest fields are None.
 
-- `GET /api/ai/text-to-speech/quota`
-- `POST /api/ai/text-to-speech`
+Pass request_id to reuse the UUID only with unchanged input. After a timeout use
+client.find_job(request_id), then client.get_job(job_id); for download failures,
+client.download_audio(result_url) downloads again without generation.
 
-Responses include base64-encoded audio and metadata such as MIME type, sample rate, channel count, bit depth, and quota information.
+## API v1 behavior
+
+An active paid Basic, Pro or Scale subscription and a FlowSpeech API key are
+required; trials do not include API generation. Keep FLOWSPEECH_API_KEY server-side.
+See [public API documentation](https://flowspeech.io/docs/public-api).
+
+Generation submits POST /api/v1/tts/jobs with {"input": ...} and one UUID
+Idempotency-Key, waits through queued/running/merging/settling, then downloads
+result.url after success. A 200 response alone does not mean generation succeeded.
+Single input uses mode/text/voiceName. Multi input uses mode/segments, where each
+turn contains speaker, text and voiceName. Model, source, speed and format options
+are unsupported and must not be sent.
+
+The default total deadline is 300 seconds, polling is at least five seconds, and
+longer Retry-After values (seconds or HTTP dates) are honored. Transient transport
+failures, 429, and explicitly retryable 5xx errors get at most two retries.
+Create retries preserve the UUID and exact body. A deadline stops local waiting,
+not the server job; use the saved IDs for recovery or explicit cancellation.
+
+Errors expose status_code, code, retryable, trace_id, request_id, job_id and
+result_url where available. Failed and cancelled jobs raise errors. Deleted
+success results are reported as result_deleted, not as empty audio.
+
+Audio is a separately downloaded, validated WAV (24000 Hz, mono, 16 bit).
+Downloads use HTTPS without API Authorization, cookies, or default client
+credentials, including across redirects. API redirects are rejected. Downloads
+are bounded to 64 MiB by default. A download retry never submits another recording.
+Anyone holding a result URL can access the recording; treat links as sensitive.
+
+GET /api/v1/quota returns quota.remaining/reserved/available plus entitlement
+(or subscription on the currently inspected server) and limits. GET /api/v1/voices
+returns voices. Recovery uses GET /api/v1/tts/jobs?requestId=UUID; status and cancel
+use /api/v1/tts/jobs/{UUID} and /api/v1/tts/jobs/{UUID}/cancel.
 
 ## Development
 
 ```bash
-python -m venv .venv
-. .venv/bin/activate
-pip install -e ".[test]"
-pytest
-```
-
-## Publishing
-
-This project is ready for PyPI packaging. Build locally with:
-
-```bash
-python -m pip install build
+python -m pip install -e ".[test]" build
+python -m pytest -q
 python -m build
 ```
 
-For GitHub Actions trusted publishing, configure a PyPI trusted publisher for `waeckerlinfederowicz66-sketch/langchain-flowspeech`, then add a publishing workflow with `id-token: write`.
-
-## Safety
-
-This repository intentionally contains no secrets. Tests use mocked HTTP responses.
+Tests use fake HTTP transports and synthetic WAVs. No production generation.
+See RELEASE.md for coordinator-only release instructions.

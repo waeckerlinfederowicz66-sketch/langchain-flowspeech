@@ -1,36 +1,26 @@
-import base64
+import asyncio
 
-import httpx
+import pytest
+from pydantic import ValidationError
 
-from langchain_flowspeech.client import FlowSpeechClient
 from langchain_flowspeech.tools import FlowSpeechTextToSpeechTool
+from test_client import wrap
+from test_v1_contract import JOB, REQUEST, factory, job, response, wav_bytes
 
 
-def test_tool_saves_audio(tmp_path) -> None:
-    def handler(_: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200,
-            json={
-                "code": 0,
-                "data": {
-                    "audioBase64": base64.b64encode(b"RIFFtool").decode(),
-                    "mimeType": "audio/L16;rate=24000",
-                    "sampleRate": 24000,
-                    "numChannels": 1,
-                    "bitsPerSample": 16,
-                },
-            },
-        )
+@pytest.mark.parametrize("asynchronous", [False, True])
+def test_tool_saves_audio(factory, tmp_path, asynchronous):
+    core, _, _, _ = factory([response(job())])
+    tool = FlowSpeechTextToSpeechTool()
+    tool._client = wrap(core)
+    output = tmp_path / "speech.wav"
+    data = {"text": "Hello", "output_path": str(output), "request_id": REQUEST}
+    result = asyncio.run(tool.ainvoke(data)) if asynchronous else tool.invoke(data)
+    assert output.read_bytes() == wav_bytes()
+    assert result["job_id"] == JOB and result["request_id"] == REQUEST
+    assert result["mime_type"] == "audio/wav" and result["quota"] is None
 
-    output_path = tmp_path / "speech.wav"
-    tool = FlowSpeechTextToSpeechTool(api_key="test-key")
-    tool._client = FlowSpeechClient(
-        api_key="test-key",
-        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
-    )
 
-    result = tool.invoke({"text": "Hello from FlowSpeech", "output_path": str(output_path)})
-
-    assert output_path.read_bytes() == b"RIFFtool"
-    assert result["output_path"] == str(output_path)
-    assert result["sample_rate"] == 24000
+def test_tool_rejects_obsolete_options():
+    with pytest.raises(ValidationError):
+        FlowSpeechTextToSpeechTool().invoke({"text": "Hi", "speed": 2})

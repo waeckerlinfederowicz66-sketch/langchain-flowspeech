@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling>=1.26"]
+requires = ["hatchling==1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
 name = "langchain-flowspeech"
-version = "0.1.0"
+version = "0.2.0"
 description = "LangChain tools for FlowSpeech text-to-speech generation."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -25,7 +25,7 @@ classifiers = [
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-  "httpx>=0.27",
+  "httpx>=0.27,<1",
   "langchain-core>=0.3,<2.0",
   "pydantic>=2,<3",
 ]
@@ -38,12 +38,15 @@ test = [
 
 [project.urls]
 Homepage = "https://flowspeech.io/"
-Documentation = "https://flowspeech.io/docs"
+Documentation = "https://flowspeech.io/docs/public-api"
 Source = "https://github.com/waeckerlinfederowicz66-sketch/langchain-flowspeech"
 Issues = "https://github.com/waeckerlinfederowicz66-sketch/langchain-flowspeech/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/langchain_flowspeech"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "docs", "README.md", "CHANGELOG.md", "RELEASE.md", "pyproject.toml", "LICENSE"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
