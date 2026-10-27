@@ -13,8 +13,8 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.12"
       - name: Build package
@@ -22,8 +22,30 @@ jobs:
           python -m pip install '.[test]' build==1.3.0 hatchling==1.27.0 twine==6.2.0
           python -m pytest -q
           python -m build --no-isolation
+      - name: Freeze built distributions
+        id: manifest
+        run: |
+          test "$(find dist -mindepth 1 -maxdepth 1 | wc -l)" -eq 2
+          test "$(find dist -maxdepth 1 -type f -name '*.whl' | wc -l)" -eq 1
+          test "$(find dist -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 1
+          shasum -a 256 dist/*.whl dist/*.tar.gz > SHA256SUMS
+          echo "sha256=$(shasum -a 256 SHA256SUMS | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Test built distributions
+        run: |
           python -m twine check dist/*
           python -m pip install --force-reinstall --no-deps dist/*.whl
           python -m pytest -q -o pythonpath=
+      - name: Test extracted sdist
+        run: |
+          mkdir sdist-test
+          tar -xzf dist/*.tar.gz -C sdist-test
+          (cd sdist-test/* && python -m pytest -q)
+      - name: Verify final distribution set
+        env:
+          EXPECTED_MANIFEST_SHA256: ${{ steps.manifest.outputs.sha256 }}
+        run: |
+          printf '%s  SHA256SUMS\n' "$EXPECTED_MANIFEST_SHA256" | shasum -a 256 --check --strict
+          test "$(find dist -mindepth 1 -maxdepth 1 | wc -l)" -eq 2
+          shasum -a 256 --check --strict SHA256SUMS
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086
