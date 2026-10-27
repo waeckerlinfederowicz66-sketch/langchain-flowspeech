@@ -3,7 +3,7 @@
 LangChain tools for [FlowSpeech](https://flowspeech.io/) public API v1.
 
 ```bash
-pip install langchain-flowspeech==0.2.0
+pip install langchain-flowspeech==0.2.1
 ```
 
 Set FLOWSPEECH_API_KEY in your server environment, then:

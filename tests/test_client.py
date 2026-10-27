@@ -17,6 +17,7 @@ def test_sync_client_legacy_dialogue(factory):
     result = wrap(core).generate_speech(text="Alice: Hello\nBob: Welcome", request_id=REQUEST,
         speakers=[FlowSpeechSpeaker(speaker="Alice"), FlowSpeechSpeaker(speaker="Bob", voice_name="Puck")])
     assert result.audio_bytes == wav_bytes() and result.job_id == JOB
+    assert calls[0].headers["User-Agent"] == "flowspeech/0.2.1"
     assert result.quota is None and result.usage["chargedCredits"] == 5
     assert json.loads(calls[0].content)["input"]["segments"] == [
         {"speaker": "Alice", "text": "Hello", "voiceName": "Kore"},
